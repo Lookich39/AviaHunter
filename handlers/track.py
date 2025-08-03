@@ -88,5 +88,9 @@ async def track_command(message: types.Message):
     user_tasks[message.chat.id] = task
 
 
-def register_track_handler(dp: Dispatcher):
-    dp.include_router(router)
+@router.message(lambda msg: msg.text == "✈ Отслеживать")
+async def track_button_handler(message: types.Message):
+    await message.answer(
+        "📥 Введи команду в формате:\n"
+        "<code>/track LED KGD 2025-08-08,2025-08-09 7000</code>"
+    )

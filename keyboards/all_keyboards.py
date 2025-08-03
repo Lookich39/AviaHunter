@@ -8,7 +8,7 @@ main_menu = ReplyKeyboardMarkup(
         ],
         [
             KeyboardButton(text="ℹ Помощь"),
-            KeyboardButton(text="🌍 Список аэропортов"),  # новая кнопка
+            KeyboardButton(text="🌍 Коды аэропортов"),  # новая кнопка
         ]
     ],
     resize_keyboard=True,

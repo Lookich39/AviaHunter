@@ -52,17 +52,19 @@ async def track_flights(chat_id: int, origin: str, destination: str, dates: list
                     departure = flight.get("departure_at", "")
                     link = flight.get("link", "")
                     message_text = (
-                        f"✈️ <b>{date}</b>\n"
+                        f"✈️ <b>{get_airport_name(origin.upper())} → {get_airport_name(destination.upper())}</b>\n"
+                        f"📅 Дата: <b>{date}</b>\n"
                         f"Цена: <b>{price} {CURRENCY.upper()}</b>\n"
                         f"Авиакомпания: <b>{airline}</b>\n"
                         f"Вылет: {departure}\n"
                         f"<a href='https://www.aviasales.ru{link}'>🔗 Купить билет</a>"
                     )
+
                     try:
                         await bot.send_message(chat_id, message_text)
                     except Exception as e:
                         print(f"Ошибка Telegram: {e}")
-        await asyncio.sleep(900)
+        await asyncio.sleep(100)
 
 @router.message(Command("track"))
 async def track_command(message: types.Message):
@@ -80,17 +82,25 @@ async def track_command(message: types.Message):
         return
 
     await message.answer(
-        f"📡 Отслеживаю рейсы <b>{get_airport_name(origin)}</b> → <b>{get_airport_name(destination)}</b> по датам {', '.join(dates)} при цене ниже {price_limit} {CURRENCY.upper()}"
+        f"📡 Отслеживаю рейсы <b>{get_airport_name(origin.upper())}</b> → <b>{get_airport_name(destination.upper())}</b> по датам {', '.join(dates)} при цене ниже {price_limit} {CURRENCY.upper()}"
     )
     task = asyncio.create_task(
         track_flights(message.chat.id, origin, destination, dates, price_limit)
     )
-    user_tasks[message.chat.id] = task
+    user_tasks.setdefault(message.chat.id, []).append(task)
 
 
 @router.message(lambda msg: msg.text == "✈ Отслеживать")
 async def track_button_handler(message: types.Message):
     await message.answer(
         "📥 Введи команду в формате:\n"
-        "<code>/track LED KGD 2025-08-08,2025-08-09 7000</code>"
+        "<code>/track &lt;код_города_вылета&gt; &lt;код_города_прилёта&gt; "
+        "&lt;даты_вылета_через_запятую&gt; &lt;максимальная_цена&gt;</code>\n\n"
+        "Пример:\n"
+        "<code>/track LED KGD 2025-08-08,2025-08-09 7000</code>\n"
+        "• LED — город вылета\n"
+        "• KGD — город прилёта\n"
+        "• даты через запятую\n"
+        "• 7000 — максимальная цена\n\n"
     )
+

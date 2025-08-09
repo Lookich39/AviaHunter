@@ -2,12 +2,16 @@ import asyncio
 from aiogram import Dispatcher
 from create_bot import bot
 from handlers import register_handlers
+from db_handlers.db_class import db
+from utils.restore_all_trackers import restore_all_trackers
 
 
 async def main():
+    await db.init_db()
     dp = Dispatcher()
     register_handlers(dp)
-    await dp.start_polling(bot)  # <<< Важно
+    await restore_all_trackers()
+    await dp.start_polling(bot)
 
 if __name__ == '__main__':
     asyncio.run(main())  # <<< Запуск asyncio-цикла

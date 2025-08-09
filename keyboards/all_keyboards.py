@@ -7,6 +7,9 @@ main_menu = ReplyKeyboardMarkup(
             KeyboardButton(text="❌ Остановить"),
         ],
         [
+            KeyboardButton(text="📋 Мои отслеживания"),
+        ],
+        [
             KeyboardButton(text="ℹ Помощь"),
             KeyboardButton(text="🌍 Коды аэропортов"),  # новая кнопка
         ]

@@ -4,8 +4,7 @@ import aiohttp
 API_TOKEN = os.getenv("API_TOKEN")
 CURRENCY = "rub"
 ONE_WAY = "true"
-DIRECT = "false"
-async def get_price_for_date(origin: str, destination: str, date_str: str):
+async def get_price_for_date(origin: str, destination: str, date_str: str, settings: dict):
     url = "https://api.travelpayouts.com/aviasales/v3/prices_for_dates"
     params = {
         "origin": origin,
@@ -14,7 +13,7 @@ async def get_price_for_date(origin: str, destination: str, date_str: str):
         "token": API_TOKEN,
         "cy": CURRENCY,
         "one_way": ONE_WAY,
-        "direct": DIRECT,
+        "direct": "true" if not settings.get("transfers", True) else "false",
         "limit": 10,
         "page": 1,
         "sorting": "price",

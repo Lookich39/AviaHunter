@@ -5,6 +5,7 @@ from handlers.track import router as track_router
 from .airport_list import router as airport_list_router
 from .help import router as help_router
 from .list_tracks import router as list_tracks_router
+from .settings import router as settings_router
 
 
 def register_handlers(dp: Dispatcher):
@@ -14,3 +15,4 @@ def register_handlers(dp: Dispatcher):
     dp.include_router(airport_list_router)
     dp.include_router(help_router)
     dp.include_router(list_tracks_router)
+    dp.include_router(settings_router)

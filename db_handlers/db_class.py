@@ -21,7 +21,8 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 telegram_id INTEGER UNIQUE,
                 username TEXT,
-                created_at TEXT
+                created_at TEXT,
+                transfers_allowed INTEGER DEFAULT 1       -- 0 или 1, пересадки запрещены/разрешены
             )
         """)
         await self.db.execute("""
@@ -32,10 +33,12 @@ class Database:
                 destination TEXT,
                 date TEXT,
                 price_limit INTEGER,
+                last_price INTEGER,
                 active INTEGER DEFAULT 1,
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
         """)
+
         await self.db.commit()
 
     async def add_user(self, telegram_id: int, username: str = None):
@@ -52,20 +55,42 @@ class Database:
         return cursor.lastrowid
 
     async def add_flight_tracker(self, user_id: int, origin: str, destination: str, date: str, price_limit: int):
-        await self.db.execute("""
+        cursor = await self.db.execute("""
             INSERT INTO flight_trackers (user_id, origin, destination, date, price_limit, active)
             VALUES (?, ?, ?, ?, ?, 1)
         """, (user_id, origin, destination, date, price_limit))
         await self.db.commit()
+        return cursor.lastrowid  # возвращаем id вставленной записи
+
+    async def update_last_price(self, tracker_id: int, price: int):
+        await self.db.execute(
+            "UPDATE flight_trackers SET last_price = ? WHERE id = ?",
+            (price, tracker_id)
+        )
+        await self.db.commit()
+
+    async def get_last_price(self, tracker_id: int) -> int | None:
+        async with self.db.execute(
+                "SELECT last_price FROM flight_trackers WHERE id = ?",
+                (tracker_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["last_price"] if row else None
 
     async def get_active_trackers(self):
         trackers = []
         async with self.db.execute("""
-            SELECT ft.id, u.telegram_id, ft.origin, ft.destination, ft.date, ft.price_limit
-            FROM flight_trackers ft
-            JOIN users u ON ft.user_id = u.id
-            WHERE ft.active = 1
-        """) as cursor:
+                SELECT ft.id,
+                       u.telegram_id,
+                       ft.origin,
+                       ft.destination,
+                       ft.date,
+                       ft.price_limit,
+                       u.transfers_allowed
+                FROM flight_trackers ft
+                JOIN users u ON ft.user_id = u.id
+                WHERE ft.active = 1
+            """) as cursor:
             async for row in cursor:
                 trackers.append({
                     "tracker_id": row["id"],
@@ -73,7 +98,10 @@ class Database:
                     "origin": row["origin"],
                     "destination": row["destination"],
                     "date": row["date"],
-                    "price_limit": row["price_limit"]
+                    "price_limit": row["price_limit"],
+                    "settings": {
+                        "transfers": bool(row["transfers_allowed"])
+                    }
                 })
         return trackers
 
@@ -93,6 +121,23 @@ class Database:
                     "price_limit": row["price_limit"]
                 })
         return trackers
+
+    async def get_user_settings(self, telegram_id: int):
+        async with self.db.execute(
+                "SELECT transfers_allowed FROM users WHERE telegram_id = ?", (telegram_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+
+        if row:
+            return {"transfers": bool(row[0])}
+        else:
+            return {"transfers": True}
+
+    async def update_user_setting(self, telegram_id: int, setting: str, value: bool):
+        await self.db.execute(
+            f"UPDATE users SET {setting} = ? WHERE telegram_id = ?", (int(value), telegram_id)
+        )
+        await self.db.commit()
 
     async def count_active_trackers(self, user_id: int) -> int:
         async with self.db.execute(

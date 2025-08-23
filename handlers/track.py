@@ -33,6 +33,7 @@ async def track_command(message: types.Message):
             return
 
         user_id = await db.add_user(message.from_user.id, message.from_user.username)
+        settings = await db.get_user_settings(message.from_user.id)
         active_count = await db.count_active_trackers(user_id)
         allowed_slots = MAX_ACTIVE_TRACKERS - active_count
 
@@ -43,7 +44,14 @@ async def track_command(message: types.Message):
             )
             return
 
-        added_dates = []
+        origin_name = get_airport_name(origin) or origin
+        destination_name = get_airport_name(destination) or destination
+        await message.answer(
+            f"📡 Начинаю отслеживание рейсов <b>{origin_name}</b> → <b>{destination_name}</b>\n"
+            f"Даты: <b>{', '.join(dates)}</b>\n"
+            f"Цена ниже <b>{price_limit} {CURRENCY.upper()}</b>"
+        )
+
         skipped = []  # список кортежей (date, reason)
 
         for date in dates:
@@ -58,7 +66,7 @@ async def track_command(message: types.Message):
                 continue
 
             # 3) проверка через API (валидность IATA + есть ли рейсы на эту дату)
-            flight = await get_price_for_date(origin, destination, date)
+            flight = await get_price_for_date(origin, destination, date, settings)
             if not flight or (isinstance(flight, dict) and flight.get("error")):
                 skipped.append((date, "рейсы не найдены (проверь IATA-коды и дату)"))
                 continue
@@ -68,8 +76,7 @@ async def track_command(message: types.Message):
                 skipped.append((date, "уже отслеживается"))
                 continue
 
-            # 5) всё ок — добавляем в БД и запускаем таск
-            await db.add_flight_tracker(user_id, origin, destination, date, price_limit)
+            tracker_id = await db.add_flight_tracker(user_id, origin, destination, date, price_limit)
 
             user_tasks.setdefault(message.from_user.id, [])
             task = asyncio.create_task(
@@ -79,14 +86,14 @@ async def track_command(message: types.Message):
                     destination,
                     date,
                     price_limit,
+                    tracker_id,
+                    settings,
                     initial_flight=flight  # если track_flight поддерживает этот параметр
                 )
             )
             user_tasks[message.from_user.id].append(task)
-
-            added_dates.append(date)
             allowed_slots -= 1
-
+        '''
         # Ответ пользователю: только по реально добавленным датам
         if added_dates:
             origin_name = get_airport_name(origin) or origin
@@ -96,7 +103,7 @@ async def track_command(message: types.Message):
                 f"Даты: <b>{', '.join(added_dates)}</b>\n"
                 f"Цена ниже <b>{price_limit} {CURRENCY.upper()}</b>"
             )
-
+        '''
         # Сводка по пропущенным датам (если есть)
         if skipped:
             lines = [f"• {d} — {reason}" for d, reason in skipped]
@@ -116,7 +123,7 @@ async def track_button_handler(message: types.Message):
         "<code>/track &lt;код_города_вылета&gt; &lt;код_города_прилёта&gt; "
         "&lt;даты_вылета_через_запятую&gt; &lt;максимальная_цена&gt;</code>\n\n"
         "Пример:\n"
-        "<code>/track LED KGD 2025-09-08,2025-09/s-09 7000</code>\n"
+        "<code>/track LED KGD 2025-09-08,2025-09-09 7000</code>\n"
         "• LED — город вылета\n"
         "• KGD — город прилёта\n"
         "• даты через запятую\n"

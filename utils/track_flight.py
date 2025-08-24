@@ -1,6 +1,8 @@
 import asyncio
 import datetime
 
+from exceptions.all_exceptions import PastDateError, APIError, NoFlightsError
+from exceptions.error_handlers import handle_past_date_error, handle_api_error, handle_no_flight_error
 from utils.aviasales_api import get_price_for_date, CURRENCY
 from utils.airport_codes import get_airport_name
 from create_bot import bot
@@ -24,14 +26,9 @@ async def track_flight(
             # Проверка — дата уже прошла
             flight_date = datetime.datetime.strptime(date, "%Y-%m-%d").date()
             today = datetime.date.today()
+
             if today > flight_date:
-                await db.delete_tracker(tracker_id)  # метод удаления трека из БД
-                await bot.send_message(
-                    telegram_id,
-                    f"⏰ Дата {date} для маршрута {get_airport_name(origin)} → {get_airport_name(destination)} уже прошла.\n"
-                    f"Трекер был автоматически удалён."
-                )
-                break
+                raise PastDateError(date, origin, destination)
 
             # Получаем данные
             if first and initial_flight:
@@ -49,6 +46,7 @@ async def track_flight(
                 continue
 
             # Цена
+            #ВОЗМОЖНО НАДО УБРАТЬ ТК НАХОДИТСЯ В ЦИКЛЕ ТРЕК, А НЕ В ВВОДЕ
             price = flight.get("price")
             if not price or int(price) == 0:
                 await bot.send_message(
@@ -81,6 +79,17 @@ async def track_flight(
                         f"<a href='https://www.aviasales.ru{link}'>🔗 Купить билет</a>"
                     )
                     await bot.send_message(telegram_id, message_text)
+        except PastDateError as e:
+            await handle_past_date_error(e, telegram_id, tracker_id)
+            break
+
+        except APIError as e:
+            await handle_api_error(e, telegram_id)
+            break
+
+        except NoFlightsError as e:
+            await handle_no_flight_error(e, telegram_id)
+            break
 
         except Exception as e:
             print(f"Ошибка в track_flight: {e}")

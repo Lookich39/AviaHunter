@@ -3,11 +3,13 @@ from aiogram.filters import Command
 import asyncio
 
 from db_handlers.db_class import db
+from exceptions.all_exceptions import *
 from handlers.task import user_tasks
 from utils.track_flight import track_flight
 from utils.airport_codes import get_airport_name
 from utils.aviasales_api import CURRENCY, get_price_for_date
 from utils.validators import is_valid_date
+from exceptions.error_handlers import *
 
 router = Router()
 
@@ -16,11 +18,12 @@ MAX_ACTIVE_TRACKERS = 5
 
 @router.message(Command("track"))
 async def track_command(message: types.Message):
+    telegram_id = message.chat.id
     await db.connect()
     try:
-        args = message.text.split()[1:]  # убираем /track
+        args = message.text.split()[1:]
         if len(args) != 4:
-            raise ValueError("Неверное число аргументов")
+            raise InvalidCommandError("❗ Неверное число аргументов")
 
         origin = args[0].strip().upper()
         destination = args[1].strip().upper()
@@ -29,20 +32,15 @@ async def track_command(message: types.Message):
         try:
             price_limit = int(args[3])
         except ValueError:
-            await message.answer("❗ Неверный формат цены. Пример: 7000")
-            return
+            raise InvalidCommandError("❗ Неверный формат цены. Пример: 7000")
 
         user_id = await db.add_user(message.from_user.id, message.from_user.username)
         settings = await db.get_user_settings(message.from_user.id)
         active_count = await db.count_active_trackers(user_id)
         allowed_slots = MAX_ACTIVE_TRACKERS - active_count
-
+        #allowed_slots < len(dates) если проверять сразу
         if allowed_slots <= 0:
-            await message.answer(
-                f"⚠ У вас уже {active_count} активных отслеживаний. "
-                f"Максимум разрешено {MAX_ACTIVE_TRACKERS}."
-            )
-            return
+            raise TrackerLimitError(active_count, MAX_ACTIVE_TRACKERS)
 
         origin_name = get_airport_name(origin) or origin
         destination_name = get_airport_name(destination) or destination
@@ -57,24 +55,26 @@ async def track_command(message: types.Message):
         for date in dates:
             # 1) проверка формата/прошлого времени
             if not is_valid_date(date):
-                skipped.append((date, "неверная дата (формат YYYY-MM-DD или дата в прошлом)"))
-                continue
+                raise InvalidDateError(date)
 
             # 2) проверка наличия слотов
             if allowed_slots <= 0:
-                skipped.append((date, "нет свободных слотов (достигнут лимит)"))
-                continue
+                message = f"Дата {date} пропущена."
+                raise TrackerLimitError(active_count, MAX_ACTIVE_TRACKERS, message)
 
-            # 3) проверка через API (валидность IATA + есть ли рейсы на эту дату)
             flight = await get_price_for_date(origin, destination, date, settings)
-            if not flight or (isinstance(flight, dict) and flight.get("error")):
-                skipped.append((date, "рейсы не найдены (проверь IATA-коды и дату)"))
-                continue
+            # 3) есть ли рейсы на эту дату
+            if not flight:
+                raise NoFlightsError(date, origin, destination)
 
-            # 4) проверка дубликата в БД
+            # 4) проверка через API
+            if isinstance(flight, dict) and flight.get("error"):
+                raise APIError(date, origin, destination)
+
+            # 5) проверка дубликата в БД
             if await db.tracker_exists(user_id, origin, destination, date):
                 skipped.append((date, "уже отслеживается"))
-                continue
+                raise AlreadyExistError(date)
 
             tracker_id = await db.add_flight_tracker(user_id, origin, destination, date, price_limit)
 
@@ -92,25 +92,25 @@ async def track_command(message: types.Message):
                 )
             )
             user_tasks[message.from_user.id].append(task)
-            allowed_slots -= 1
-        '''
-        # Ответ пользователю: только по реально добавленным датам
-        if added_dates:
-            origin_name = get_airport_name(origin) or origin
-            destination_name = get_airport_name(destination) or destination
-            await message.answer(
-                f"📡 Отслеживаю рейсы <b>{origin_name}</b> → <b>{destination_name}</b>\n"
-                f"Даты: <b>{', '.join(added_dates)}</b>\n"
-                f"Цена ниже <b>{price_limit} {CURRENCY.upper()}</b>"
-            )
-        '''
-        # Сводка по пропущенным датам (если есть)
-        if skipped:
-            lines = [f"• {d} — {reason}" for d, reason in skipped]
-            await message.answer("⚠ Пропущены даты:\n" + "\n".join(lines))
+            active_count += 1
+            allowed_slots = MAX_ACTIVE_TRACKERS - active_count
+
+    except InvalidCommandError as e:
+        await handle_invalid_command_error(e, telegram_id)
+
+    except TrackerLimitError as e:
+        await handle_tracker_limit_error(e, telegram_id)
+
+    except InvalidDateError as e:
+        await handle_invalid_date_error(e, telegram_id)
+
+    except APIError as e:
+        await handle_api_error(e, telegram_id)
+
+    except AlreadyExistError as e:
+        await handle_already_exist_error(e, telegram_id)
 
     except Exception as e:
-        print(f"Ошибка: {e}")
         await message.answer(
             "❗ Формат команды:\n<code>/track LED KGD 2025-08-04,2025-08-05 7000</code>"
         )

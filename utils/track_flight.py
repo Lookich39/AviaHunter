@@ -16,7 +16,7 @@ async def track_flight(
     tracker_id: int,
     settings: dict,
     initial_flight: dict = None,
-    check_interval: int = 100
+    check_interval: int = 600
 ):
     first = True
     while True:
